@@ -504,7 +504,10 @@ typedef struct NvmeSmartLog {
     uint64_t    unsafe_shutdowns[2];
     uint64_t    media_errors[2];
     uint64_t    number_of_error_log_entries[2];
-    uint8_t     reserved2[320];
+    uint32_t    warning_temperature_time;
+    uint32_t    critical_temperature_time;
+    uint16_t    temperature_sensor[8];
+    uint8_t     reserved2[296];
 } NvmeSmartLog;
 
 enum NvmeSmartWarn {

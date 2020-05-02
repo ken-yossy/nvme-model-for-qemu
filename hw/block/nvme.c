@@ -39,8 +39,54 @@
 #include "qemu/log.h"
 #include "qemu/module.h"
 #include "qemu/cutils.h"
+#include "qemu/qemu-print.h"
+#include "monitor/monitor.h"
 #include "trace.h"
 #include "nvme.h"
+
+#include <fcntl.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <stdio.h>
+
+#define NVME_SMART_LOG_FILE "smartlog.bin"
+
+static void nvme_smart_inc_num_power_cycle(NvmeCtrl *_ctrl)
+{
+    (_ctrl->smart.power_cycles[0])++;
+
+    if ( _ctrl->smart.power_cycles[0] == 0 ) {
+        (_ctrl->smart.power_cycles[1])++;
+    }
+}
+
+static void nvme_smart_save(NvmeCtrl *_ctrl)
+{
+    int fd = creat( NVME_SMART_LOG_FILE, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH );
+    if ( fd != -1 ) {
+	ssize_t wn = write( fd, (const void*)&(_ctrl->smart), sizeof(NvmeSmartLog) );
+	if ( wn != sizeof(NvmeSmartLog) ) {
+	    qemu_printf( "[NVME] something wrong occurred in writing file: %s\n", strerror(errno) );
+	}
+    } else {
+	qemu_printf( "[NVME] something wrong occurred in creating file: %s\n", strerror(errno) );
+    }
+}
+
+static void nvme_smart_load(NvmeCtrl *_ctrl)
+{
+    memset( &(_ctrl->smart), 0, sizeof(NvmeSmartLog) ); // clear
+    int fd = open( NVME_SMART_LOG_FILE, O_RDONLY );
+    if ( fd != -1 ) {
+	ssize_t rn = read( fd, (void*)&(_ctrl->smart), sizeof(NvmeSmartLog) );
+	if ( rn != sizeof(NvmeSmartLog) ) {
+	    qemu_printf( "[NVME] something wrong occurred in reading file: %s\n", strerror(errno) );
+	}
+    } else {
+	qemu_printf( "[NVME] something wrong occurred in opening file: %s\n", strerror(errno) );
+    }
+}
 
 #define NVME_GUEST_ERR(trace, fmt, ...) \
     do { \
@@ -843,6 +889,40 @@ static uint16_t nvme_set_feature(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     return NVME_SUCCESS;
 }
 
+static uint16_t nvme_get_smart(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu(_cmd->prp1);
+    uint64_t prp2 = le64_to_cpu(_cmd->prp2);
+    uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
+
+    // REVISIT: currently, allows only transfering whole data (512byte) at one time
+    if ( ( numd + 1 ) < sizeof(NvmeSmartLog) / 4 ) {
+        return NVME_INVALID_FIELD;
+    }
+
+    return nvme_dma_read_prp(_ctrl, (uint8_t *)&_ctrl->smart, sizeof(NvmeSmartLog), prp1, prp2);
+}
+
+static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
+{
+    uint32_t cdw10 = le32_to_cpu(_cmd->cdw10);
+    uint8_t  lid   = cdw10 & 0xFF; // Log Page Identifier (LID)
+
+    switch ( lid ) {
+    case NVME_LOG_ERROR_INFO:
+        break;
+    case NVME_LOG_SMART_INFO:
+        return nvme_get_smart(_ctrl, _cmd, _req);
+    case NVME_LOG_FW_SLOT_INFO:
+        break;
+    default:
+        // REVISIT: need to implement trace event like "trace_nvme_err_invalid_logid(cdw10)"
+        return NVME_INVALID_LOG_ID | NVME_DNR;
+    }
+
+    return NVME_SUCCESS;
+}
+
 static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
 {
     switch (cmd->opcode) {
@@ -850,6 +930,8 @@ static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
         return nvme_del_sq(n, cmd);
     case NVME_ADM_CMD_CREATE_SQ:
         return nvme_create_sq(n, cmd);
+    case NVME_ADM_CMD_GET_LOG_PAGE:
+        return nvme_get_log_page(n, cmd, req);
     case NVME_ADM_CMD_DELETE_CQ:
         return nvme_del_cq(n, cmd);
     case NVME_ADM_CMD_CREATE_CQ:
@@ -1086,6 +1168,9 @@ static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
             nvme_clear_ctrl(n);
             n->bar.cc = data;
             n->bar.csts |= NVME_CSTS_SHST_COMPLETE;
+
+            nvme_smart_inc_num_power_cycle( n ); // record as "Power Cycle"
+            nvme_smart_save(n); // save SMART data at shutdown event
         } else if (!NVME_CC_SHN(data) && NVME_CC_SHN(n->bar.cc)) {
             trace_nvme_mmio_shutdown_cleared();
             n->bar.csts &= ~NVME_CSTS_SHST_COMPLETE;
@@ -1302,6 +1387,20 @@ static const MemoryRegionOps nvme_cmb_ops = {
     },
 };
 
+static void nvme_realize_smart_log(NvmeCtrl *_ctrl)
+{
+    NvmeSmartLog *log = &(_ctrl->smart);
+
+    nvme_smart_load(_ctrl);
+
+    // followings are just temporary...?
+    log->temperature[0] = ( cpu_to_le16( 273 + 30 ) & 0xFF );
+    log->temperature[1] = ( ( cpu_to_le16( 273 + 30 ) >> 8 ) & 0xFF );
+    log->available_spare = 100;
+    log->available_spare_threshold = 10;
+    log->temperature_sensor[0] = cpu_to_le16( 273 + 30 );
+}
+
 static void nvme_realize(PCIDevice *pci_dev, Error **errp)
 {
     NvmeCtrl *n = NVME(pci_dev);
@@ -1380,6 +1479,8 @@ static void nvme_realize(PCIDevice *pci_dev, Error **errp)
     if (blk_enable_write_cache(n->conf.blk)) {
         id->vwc = 1;
     }
+
+    nvme_realize_smart_log(n);
 
     n->bar.cap = 0;
     NVME_CAP_SET_MQES(n->bar.cap, 0x7ff);
