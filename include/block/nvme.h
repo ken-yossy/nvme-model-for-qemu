@@ -233,8 +233,10 @@ enum NvmeAdminCommands {
     NVME_ADM_CMD_SET_FEATURES   = 0x09,
     NVME_ADM_CMD_GET_FEATURES   = 0x0a,
     NVME_ADM_CMD_ASYNC_EV_REQ   = 0x0c,
+    NVME_ADM_CMD_NS_MGMT        = 0x0d,
     NVME_ADM_CMD_ACTIVATE_FW    = 0x10,
     NVME_ADM_CMD_DOWNLOAD_FW    = 0x11,
+    NVME_ADM_CMD_NS_ATTACH      = 0x15,
     NVME_ADM_CMD_FORMAT_NVM     = 0x80,
     NVME_ADM_CMD_SECURITY_SEND  = 0x81,
     NVME_ADM_CMD_SECURITY_RECV  = 0x82,
@@ -248,6 +250,10 @@ enum NvmeIoCommands {
     NVME_CMD_COMPARE            = 0x05,
     NVME_CMD_WRITE_ZEROS        = 0x08,
     NVME_CMD_DSM                = 0x09,
+    NVME_CMD_RESV_REGISTER      = 0x0d,
+    NVME_CMD_RESV_REPORT        = 0x0e,
+    NVME_CMD_RESV_ACQUIRE       = 0x11,
+    NVME_CMD_RESV_RELEASE       = 0x15,
 };
 
 typedef struct NvmeDeleteQ {
@@ -484,7 +490,9 @@ typedef struct NvmeErrorLog {
     uint64_t    lba;
     uint32_t    nsid;
     uint8_t     vs;
-    uint8_t     resv[35];
+    uint8_t     rsvd31[3];
+    uint64_t    cmd_specific_info;
+    uint8_t     rsvd63[24];
 } NvmeErrorLog;
 
 typedef struct NvmeSmartLog {
@@ -525,15 +533,35 @@ enum LogIdentifier {
 };
 
 typedef struct NvmePSD {
-    uint16_t    mp;
-    uint16_t    reserved;
-    uint32_t    enlat;
-    uint32_t    exlat;
-    uint8_t     rrt;
-    uint8_t     rrl;
-    uint8_t     rwt;
-    uint8_t     rwl;
-    uint8_t     resv[16];
+    uint16_t    mp;           // [ 15:  0]
+    uint8_t     rsvd3;        // [ 23: 16]
+    union {
+        uint8_t _u8;          // [ 31: 24]
+        struct {
+            uint8_t mps  : 1; // [     24]
+            uint8_t nops : 1; // [     25]
+            uint8_t rsvd : 6; // [ 31: 26]
+        };
+    } _byte4;
+    uint32_t    enlat;        // [ 63: 32]
+    uint32_t    exlat;        // [ 95: 64]
+    uint8_t     rrt;          // [103: 96]
+    uint8_t     rrl;          // [111:104]
+    uint8_t     rwt;          // [119:112]
+    uint8_t     rwl;          // [127:120]
+    uint16_t    idlp;         // [143:128]
+    uint8_t     ips;          // [151:144]
+    uint8_t     rsvd19;       // [159:152]
+    uint16_t    actp;         // [175:160]
+    union {
+        uint8_t _u8;          // [183:176]
+        struct {
+            uint8_t apw  : 3; // [178:176]
+            uint8_t rsvd : 3; // [181:179]
+            uint8_t aps  : 2; // [183:182]
+        };
+    } _byte22;
+    uint8_t     rsvd32[9];    // [255:184]
 } NvmePSD;
 
 typedef struct NvmeIdCtrl {
@@ -546,7 +574,13 @@ typedef struct NvmeIdCtrl {
     uint8_t     ieee[3];
     uint8_t     cmic;
     uint8_t     mdts;
-    uint8_t     rsvd255[178];
+    uint16_t    cntlid;
+    uint32_t    ver;
+    uint32_t    rtd3r;
+    uint32_t    rtd3e;
+    uint32_t    oaes;
+    uint8_t     rsvd239[144];
+    uint8_t     rsvd255[16];
     uint16_t    oacs;
     uint8_t     acl;
     uint8_t     aerl;
@@ -554,7 +588,17 @@ typedef struct NvmeIdCtrl {
     uint8_t     lpa;
     uint8_t     elpe;
     uint8_t     npss;
-    uint8_t     rsvd511[248];
+    uint8_t     avscc;
+    uint8_t     apsta;
+    uint16_t    wctemp;
+    uint16_t    cctemp;
+    uint16_t    mtfa;
+    uint32_t    hmpre;
+    uint32_t    hmmin;
+    uint64_t    tnvmcap[2];
+    uint64_t    unvmcap[2];
+    uint32_t    rpmbs;
+    uint8_t     rsvd511[196];
     uint8_t     sqes;
     uint8_t     cqes;
     uint16_t    rsvd515;
@@ -565,7 +609,12 @@ typedef struct NvmeIdCtrl {
     uint8_t     vwc;
     uint16_t    awun;
     uint16_t    awupf;
-    uint8_t     rsvd703[174];
+    uint8_t     nvscc;
+    uint8_t     rsvd531;
+    uint16_t    acwu;
+    uint8_t     rsvd535[2];
+    uint32_t    sgls;
+    uint8_t     rsvd703[164];
     uint8_t     rsvd2047[1344];
     NvmePSD     psd[32];
     uint8_t     vs[1024];
@@ -656,9 +705,23 @@ typedef struct NvmeIdNs {
     uint8_t     mc;
     uint8_t     dpc;
     uint8_t     dps;
-    uint8_t     res30[98];
+    uint8_t     nmic;
+    uint8_t     rescap;
+    uint8_t     fpi;
+    uint8_t     rsvd32;
+    uint16_t    nawun;
+    uint16_t    nawupf;
+    uint16_t    nacwu;
+    uint16_t    nabsn;
+    uint16_t    nabo;
+    uint16_t    nabspf;
+    uint8_t     rsvd47[2];
+    uint64_t    nvmcap[2];
+    uint8_t     rsvd103[40];
+    uint8_t     nguid[16];
+    uint8_t     eui64[8];
     NvmeLBAF    lbaf[16];
-    uint8_t     res192[192];
+    uint8_t     rsvd383[192];
     uint8_t     vs[3712];
 } NvmeIdNs;
 
@@ -701,5 +764,6 @@ static inline void _nvme_check_size(void)
     QEMU_BUILD_BUG_ON(sizeof(NvmeSmartLog) != 512);
     QEMU_BUILD_BUG_ON(sizeof(NvmeIdCtrl) != 4096);
     QEMU_BUILD_BUG_ON(sizeof(NvmeIdNs) != 4096);
+    QEMU_BUILD_BUG_ON(sizeof(NvmePSD) != 32);
 }
 #endif

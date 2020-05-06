@@ -1401,6 +1401,151 @@ static void nvme_realize_smart_log(NvmeCtrl *_ctrl)
     log->temperature_sensor[0] = cpu_to_le16( 273 + 30 );
 }
 
+static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
+{
+    NvmeIdCtrl *id = &_ctrl->id_ctrl;
+
+    // PCI Vendor ID (VID)
+    id->vid = cpu_to_le16(pci_get_word(_pci_conf + PCI_VENDOR_ID));
+
+    // PCI Subsystem Vendor ID (SSVID)
+    id->ssvid = cpu_to_le16(pci_get_word(_pci_conf + PCI_SUBSYSTEM_VENDOR_ID));
+
+    // Serial Number (SN)
+    strpadcpy((char *)id->sn, sizeof(id->sn), _ctrl->serial, ' ');
+
+    // Model Number (MN)
+    strpadcpy((char *)id->mn, sizeof(id->mn), "QEMU NVMe Ctrl", ' ');
+
+    // Firmware Revision (FR)
+    strpadcpy((char *)id->fr, sizeof(id->fr), "1.0", ' ');
+
+    // Recommended Arbitration Burst (RAB)
+    id->rab = 6;
+
+    // IEEE OUI Identifier (IEEE)
+    id->ieee[0] = 0x00;
+    id->ieee[1] = 0x02;
+    id->ieee[2] = 0xb3;
+
+    // Controller Multi-Path I/O and Namespace Sharing Capabilities (CMIC)
+    id->cmic = 0;
+
+    // Maximum Data Transfer Size (MDTS)
+    id->mdts = 0; // no restrictions
+
+    // Controller ID (CNTLID)
+    id->cntlid = 0;
+
+    // Version (VER)
+    id->ver = cpu_to_le32(0x00010200);
+
+    // RTD3 Resume Latency (RTD3R)
+    id->rtd3r = 1000;
+
+    // RTD3 Entry Latency (RTD3E)
+    id->rtd3e = 1000;
+
+    // Optional Asynchronous Events Supported (OAES)
+    id->oaes = 0;
+
+    // Optional Admin Command Support (OACS)
+    id->oacs = cpu_to_le16(0);
+
+    // Abort Command Limit (ACL)
+    id->acl = 0;
+
+    // Asynchronous Event Request Limit (AERL)
+    id->aerl = 0;
+
+    // Firmware Updates (FRMW)
+    id->frmw = 7 << 1;
+
+    // Log Page Attributes (LPA)
+    id->lpa = 1 << 0; // SMART enabled
+
+    // Error Log Page Entries (ELPE)
+    id->elpe = 0;
+
+    // Number of Power States Support (NPSS)
+    id->npss = 0;
+
+    // Admin Vendor Specific Command Configuration (AVSCC)
+    id->avscc = 0;
+
+    // Autonomous Power State Transition Attributes (APSTA)
+    id->apsta = 0;
+
+    // Warning Composite Temperature Threshold (WCTEMP)
+    id->wctemp = 363; // 90 degrees Celcius
+
+    // Critical Composite Temperature Threshold (CCTEMP)
+    id->cctemp = 373; // 100 degrees Celcius
+
+    // Maximum Time for Firmware Activation (MTFA)
+    id->mtfa = 0;
+
+    // Host Memory Buffer Preferred Size (HMPRE)
+    id->hmpre = 0;
+
+    // Host Memory Buffer Minimum Size (HMMIN)
+    id->hmmin = 0;
+
+    // Total NVM Capacity (TNVMCAP)
+    id->tnvmcap[0] = 0;
+    id->tnvmcap[1] = 0;
+
+    // Unallocated NVM Capacity (UNVMCAP)
+    id->unvmcap[0] = 0;
+    id->unvmcap[1] = 0;
+
+    // Replay Protected Memory Block Support (RPMBS)
+    id->rpmbs = 0;
+
+    // Submission Queue Entry Size (SQES)
+    id->sqes = (0x6 << 4) | 0x6;
+
+    // Completion Queue Entry Size (CQES)
+    id->cqes = (0x4 << 4) | 0x4;
+
+    // Number of Namespaces (NN)
+    id->nn = cpu_to_le32(_ctrl->num_namespaces);
+
+    // Optional NVM Command Support (ONCS)
+    id->oncs = cpu_to_le16(NVME_ONCS_WRITE_ZEROS | NVME_ONCS_TIMESTAMP);
+
+    // Fused Operation Support (FUSES)
+    id->fuses = 0;
+
+    // Format NVM Attributes (FNA)
+    id->fna = 0;
+
+    // Volatile Write Cache (VWC)
+    if (blk_enable_write_cache(_ctrl->conf.blk)) {
+        id->vwc = 1;
+    }
+
+    // Atomic Write Unit Normal (AWUN)
+    id->awun = 0;
+
+    // Atomic Write Unit Power Fail (AWUPF)
+    id->awupf = 0;
+
+    // NVM Vendor Specific Command Configuration (NVSCC)
+    id->nvscc = 0;
+
+    // Atomic Compare Write Unit (ACWU)
+    id->acwu = 0;
+
+    // SGL Support (SGLS)
+    id->sgls = 0;
+
+    // Power State Descriptors
+    id->psd[0].mp    = cpu_to_le16(0x9c4);
+    id->psd[0].enlat = cpu_to_le32(0x10);
+    id->psd[0].exlat = cpu_to_le32(0x4);
+}
+
 static void nvme_realize(PCIDevice *pci_dev, Error **errp)
 {
     NvmeCtrl *n = NVME(pci_dev);
@@ -1480,6 +1625,7 @@ static void nvme_realize(PCIDevice *pci_dev, Error **errp)
         id->vwc = 1;
     }
 
+    nvme_realize_id_ctrl(n, pci_conf);
     nvme_realize_smart_log(n);
 
     n->bar.cap = 0;
