@@ -495,6 +495,8 @@ typedef struct NvmeErrorLog {
     uint8_t     rsvd63[24];
 } NvmeErrorLog;
 
+#define NVME_NUM_ERROR_LOG (1)
+
 typedef struct NvmeSmartLog {
     uint8_t     critical_warning;
     uint8_t     temperature[2];

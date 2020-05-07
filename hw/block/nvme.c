@@ -895,12 +895,29 @@ static uint16_t nvme_get_smart(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req
     uint64_t prp2 = le64_to_cpu(_cmd->prp2);
     uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
 
-    // REVISIT: currently, allows only transfering whole data (512byte) at one time
+    // REVISIT: currently, allows only transfering whole data (512 byte) at one time
     if ( ( numd + 1 ) < sizeof(NvmeSmartLog) / 4 ) {
         return NVME_INVALID_FIELD;
     }
 
     return nvme_dma_read_prp(_ctrl, (uint8_t *)&_ctrl->smart, sizeof(NvmeSmartLog), prp1, prp2);
+}
+
+static uint16_t nvme_get_error_info(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu(_cmd->prp1);
+    uint64_t prp2 = le64_to_cpu(_cmd->prp2);
+    uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
+
+    // REVISIT: currently, allows only transfering whole data at one time
+    if ( ( numd + 1 ) < ( sizeof(NvmeErrorLog) / 4 ) * NVME_NUM_ERROR_LOG ) {
+        return NVME_INVALID_FIELD;
+    }
+
+    return nvme_dma_read_prp(_ctrl,
+			     (uint8_t *)(_ctrl->error_info),
+			     sizeof(NvmeErrorLog) * NVME_NUM_ERROR_LOG,
+			     prp1, prp2);
 }
 
 static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
@@ -910,7 +927,7 @@ static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_
 
     switch ( lid ) {
     case NVME_LOG_ERROR_INFO:
-        break;
+        return nvme_get_error_info(_ctrl, _cmd, _req);
     case NVME_LOG_SMART_INFO:
         return nvme_get_smart(_ctrl, _cmd, _req);
     case NVME_LOG_FW_SLOT_INFO:
@@ -1387,6 +1404,25 @@ static const MemoryRegionOps nvme_cmb_ops = {
     },
 };
 
+static void nvme_realize_error_info_log(NvmeCtrl *_ctrl)
+{
+    NvmeErrorLog *elog = _ctrl->error_info;
+
+    // followings are just temporary...
+    for ( int i = 0; i < NVME_NUM_ERROR_LOG; i++ ) {
+        elog->error_count  = cpu_to_le64( 0 );
+        elog->sqid         = cpu_to_le16( 0xFFFF );
+        elog->cid          = cpu_to_le16( 0xFFFF );
+        elog->status_field = cpu_to_le16( 0 );
+        elog->param_error_location = cpu_to_le16( 0 );
+        elog->lba          = cpu_to_le64( 0 );
+        elog->nsid         = cpu_to_le32( 0 );
+        elog->vs           = 0;
+        elog->cmd_specific_info    = cpu_to_le64( 0 );
+	elog++;
+    }
+}
+
 static void nvme_realize_smart_log(NvmeCtrl *_ctrl)
 {
     NvmeSmartLog *log = &(_ctrl->smart);
@@ -1465,7 +1501,7 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->lpa = 1 << 0; // SMART enabled
 
     // Error Log Page Entries (ELPE)
-    id->elpe = 0;
+    id->elpe = (NVME_NUM_ERROR_LOG - 1);
 
     // Number of Power States Support (NPSS)
     id->npss = 0;
@@ -1549,7 +1585,6 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
 static void nvme_realize(PCIDevice *pci_dev, Error **errp)
 {
     NvmeCtrl *n = NVME(pci_dev);
-    NvmeIdCtrl *id = &n->id_ctrl;
 
     int i;
     int64_t bs_size;
@@ -1602,31 +1637,9 @@ static void nvme_realize(PCIDevice *pci_dev, Error **errp)
         &n->iomem);
     msix_init_exclusive_bar(pci_dev, n->num_queues, 4, NULL);
 
-    id->vid = cpu_to_le16(pci_get_word(pci_conf + PCI_VENDOR_ID));
-    id->ssvid = cpu_to_le16(pci_get_word(pci_conf + PCI_SUBSYSTEM_VENDOR_ID));
-    strpadcpy((char *)id->mn, sizeof(id->mn), "QEMU NVMe Ctrl", ' ');
-    strpadcpy((char *)id->fr, sizeof(id->fr), "1.0", ' ');
-    strpadcpy((char *)id->sn, sizeof(id->sn), n->serial, ' ');
-    id->rab = 6;
-    id->ieee[0] = 0x00;
-    id->ieee[1] = 0x02;
-    id->ieee[2] = 0xb3;
-    id->oacs = cpu_to_le16(0);
-    id->frmw = 7 << 1;
-    id->lpa = 1 << 0;
-    id->sqes = (0x6 << 4) | 0x6;
-    id->cqes = (0x4 << 4) | 0x4;
-    id->nn = cpu_to_le32(n->num_namespaces);
-    id->oncs = cpu_to_le16(NVME_ONCS_WRITE_ZEROS | NVME_ONCS_TIMESTAMP);
-    id->psd[0].mp = cpu_to_le16(0x9c4);
-    id->psd[0].enlat = cpu_to_le32(0x10);
-    id->psd[0].exlat = cpu_to_le32(0x4);
-    if (blk_enable_write_cache(n->conf.blk)) {
-        id->vwc = 1;
-    }
-
     nvme_realize_id_ctrl(n, pci_conf);
     nvme_realize_smart_log(n);
+    nvme_realize_error_info_log(n);
 
     n->bar.cap = 0;
     NVME_CAP_SET_MQES(n->bar.cap, 0x7ff);

@@ -90,6 +90,7 @@ typedef struct NvmeCtrl {
     NvmeCQueue      admin_cq;
     NvmeIdCtrl      id_ctrl;
     NvmeSmartLog    smart;
+    NvmeErrorLog    error_info[NVME_NUM_ERROR_LOG];
 } NvmeCtrl;
 
 #endif /* HW_NVME_H */
