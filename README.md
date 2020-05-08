@@ -60,7 +60,7 @@ It is referred to the NVMe 1.2.0 specification.
 |  257: 256 | M   | OACS     | 0                |                              |
 |       258 | M   | ACL      | 0                | means 1 (0's based value)    |
 |       259 | M   | AERL     | 0                | means 1 (0's based value)    |
-|       260 | M   | FRMW     | 0x0E             |                              |
+|       260 | M   | FRMW     | 0x0E             | there's no activation pending slot, active slot is slot 1, and number of FW slot is seven |
 |       261 | M   | LPA      | 0x1              |                              |
 |       262 | M   | ELPE     | 0                | means 1 (0's based value)    |
 |       263 | M   | NPSS     | 0                | means 1 (2^0)                |

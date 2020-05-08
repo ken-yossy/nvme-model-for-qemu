@@ -920,6 +920,23 @@ static uint16_t nvme_get_error_info(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest 
 			     prp1, prp2);
 }
 
+static uint16_t nvme_get_fw_slot_info(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu(_cmd->prp1);
+    uint64_t prp2 = le64_to_cpu(_cmd->prp2);
+    uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
+
+    // REVISIT: currently, allows only transfering whole data at one time
+    if ( ( numd + 1 ) < ( sizeof(NvmeFwSlotInfoLog) / 4 ) ) {
+        return NVME_INVALID_FIELD | NVME_DNR;
+    }
+
+    return nvme_dma_read_prp(_ctrl,
+			     (uint8_t *)&(_ctrl->fw_slot_info),
+			     sizeof(NvmeFwSlotInfoLog),
+			     prp1, prp2);
+}
+
 static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
 {
     uint32_t cdw10 = le32_to_cpu(_cmd->cdw10);
@@ -931,7 +948,7 @@ static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_
     case NVME_LOG_SMART_INFO:
         return nvme_get_smart(_ctrl, _cmd, _req);
     case NVME_LOG_FW_SLOT_INFO:
-        break;
+        return nvme_get_fw_slot_info(_ctrl, _cmd, _req);
     default:
         // REVISIT: need to implement trace event like "trace_nvme_err_invalid_logid(cdw10)"
         return NVME_INVALID_LOG_ID | NVME_DNR;
@@ -1437,6 +1454,17 @@ static void nvme_realize_smart_log(NvmeCtrl *_ctrl)
     log->temperature_sensor[0] = cpu_to_le16( 273 + 30 );
 }
 
+static void nvme_realize_fw_slot_info_log(NvmeCtrl *_ctrl)
+{
+    NvmeFwSlotInfoLog *log = &(_ctrl->fw_slot_info);
+
+    memset( log, 0, sizeof(NvmeFwSlotInfoLog) ); // clear
+    log->afi = 1; // firmware in slot 1 is running (active slot number)
+
+    // only slot 1 has valid firmware revision
+    strpadcpy((char *)(log->frs1), sizeof(log->frs1), "1.0", ' ');
+}
+
 static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
 {
     NvmeIdCtrl *id = &_ctrl->id_ctrl;
@@ -1495,6 +1523,9 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->aerl = 0;
 
     // Firmware Updates (FRMW)
+    //  - controller requires a reset to activate downloaded firmware
+    //  - number of firmware slot is seven
+    //  - the first firmware slot (slot 1) is read/write
     id->frmw = 7 << 1;
 
     // Log Page Attributes (LPA)
@@ -1640,6 +1671,7 @@ static void nvme_realize(PCIDevice *pci_dev, Error **errp)
     nvme_realize_id_ctrl(n, pci_conf);
     nvme_realize_smart_log(n);
     nvme_realize_error_info_log(n);
+    nvme_realize_fw_slot_info_log(n);
 
     n->bar.cap = 0;
     NVME_CAP_SET_MQES(n->bar.cap, 0x7ff);
