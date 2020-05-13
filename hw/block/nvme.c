@@ -50,6 +50,80 @@
 #include <sys/stat.h>
 #include <stdio.h>
 
+static const uint32_t nvme_ced_admin[] = {
+    NVME_CED_SET_CSUPP, // 00h: Delete I/O Submission Queue
+    NVME_CED_SET_CSUPP, // 01h: Create I/O Submission Queue
+    NVME_CED_SET_CSUPP, // 02h: Get Log Page
+    0,                  // 03h:
+    NVME_CED_SET_CSUPP, // 04h: Delete I/O Completion Queue
+    NVME_CED_SET_CSUPP, // 05h: Create I/O Completion Queue
+    NVME_CED_SET_CSUPP, // 06h: Identify
+    0,                  // 07h:
+    0,                  // 08h: Abort
+    NVME_CED_SET_CSUPP, // 09h: Set Features
+    NVME_CED_SET_CSUPP, // 0Ah: Get Features
+    0,                  // 0Bh:
+    0,                  // 0Ch: Asynchronous Event Request
+    0,                  // 0Dh: Namespace Management
+    0, 0,               // 0Eh, 0Fh
+    0,                  // 10h: Firmware Commit
+    0,                  // 11h: Firmware Image Download
+    0, 0, 0,            // 12h, 13h, 14h
+    0,                  // 15h: Namespace Attachment
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // 16h -- 1Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 20h -- 2Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 30h -- 3Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 40h -- 4Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 50h -- 5Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 60h -- 6Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 70h -- 7Fh
+    0,                                                   // 80h: Format NVM
+    0,                                                   // 81h: Security Send
+    0,                                                   // 82h: Security Receive
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,               // 83h -- 8Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // 90h -- 9Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // A0h -- AFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // B0h -- BFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // C0h -- CFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // D0h -- DFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // E0h -- EFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,      // F0h -- FFh
+};
+
+static const uint32_t nvme_ced_io[] = {
+    NVME_CED_SET_CSUPP,                     // 00h: Flush
+    NVME_CED_SET_CSUPP | NVME_CED_SET_LBCC, // 01h: Write
+    NVME_CED_SET_CSUPP,                     // 02h: Read
+    0,                                      // 03h:
+    0,                                      // 04h: Write Uncorrectable
+    0,                                      // 05h: Compare
+    0, 0,                                   // 06h, 07h:
+    NVME_CED_SET_CSUPP | NVME_CED_SET_LBCC, // 08h: Write Zeroes
+    0,                                      // 09h: Dataset Management
+    0, 0, 0,                                // 0Ah, 0Bh, 0Ch
+    0,                                      // 0Dh: Reservation Register
+    0,                                      // 0Eh: Reservation Report
+    0, 0,                                   // 0Fh, 10h
+    0,                                      // 11h: Reservation Acquire
+    0, 0, 0,                                // 12h, 13h, 14h
+    0,                                      // 15h: Reservation Release
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,           // 16h -- 1Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 20h -- 2Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 30h -- 3Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 40h -- 4Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 50h -- 5Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 60h -- 6Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 70h -- 7Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 80h -- 8Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 90h -- 9Fh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // A0h -- AFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // B0h -- BFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // C0h -- CFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // D0h -- DFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E0h -- EFh
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // F0h -- FFh
+};
+
 #define NVME_SMART_LOG_FILE "smartlog.bin"
 
 static void nvme_smart_inc_num_power_cycle(NvmeCtrl *_ctrl)
@@ -889,66 +963,82 @@ static uint16_t nvme_set_feature(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     return NVME_SUCCESS;
 }
 
-static uint16_t nvme_get_smart(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
+static uint16_t nvme_get_smart(NvmeCtrl *_ctrl, NvmeGetLogPageCmd *_cmd, NvmeRequest *_req)
 {
-    uint64_t prp1 = le64_to_cpu(_cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(_cmd->prp2);
-    uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
+    uint64_t prp1 = le64_to_cpu( _cmd->prp1 );
+    uint64_t prp2 = le64_to_cpu( _cmd->prp2 );
+    uint16_t numd = le16_to_cpu( _cmd->numd ) & 0x0FFF;
 
-    // REVISIT: currently, allows only transfering whole data (512 byte) at one time
-    if ( ( numd + 1 ) < sizeof(NvmeSmartLog) / 4 ) {
-        return NVME_INVALID_FIELD;
-    }
-
-    return nvme_dma_read_prp(_ctrl, (uint8_t *)&_ctrl->smart, sizeof(NvmeSmartLog), prp1, prp2);
-}
-
-static uint16_t nvme_get_error_info(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
-{
-    uint64_t prp1 = le64_to_cpu(_cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(_cmd->prp2);
-    uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
-
-    // REVISIT: currently, allows only transfering whole data at one time
-    if ( ( numd + 1 ) < ( sizeof(NvmeErrorLog) / 4 ) * NVME_NUM_ERROR_LOG ) {
-        return NVME_INVALID_FIELD;
-    }
-
-    return nvme_dma_read_prp(_ctrl,
-			     (uint8_t *)(_ctrl->error_info),
-			     sizeof(NvmeErrorLog) * NVME_NUM_ERROR_LOG,
-			     prp1, prp2);
-}
-
-static uint16_t nvme_get_fw_slot_info(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
-{
-    uint64_t prp1 = le64_to_cpu(_cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(_cmd->prp2);
-    uint16_t numd = ( le32_to_cpu(_cmd->cdw10) >> 16 ) & 0xFF; // Number of Dwords (NUMD)
-
-    // REVISIT: currently, allows only transfering whole data at one time
-    if ( ( numd + 1 ) < ( sizeof(NvmeFwSlotInfoLog) / 4 ) ) {
+    if ( sizeof(NvmeSmartLog) < ( ( numd + 1 ) << 2 ) ) {
         return NVME_INVALID_FIELD | NVME_DNR;
     }
 
-    return nvme_dma_read_prp(_ctrl,
-			     (uint8_t *)&(_ctrl->fw_slot_info),
-			     sizeof(NvmeFwSlotInfoLog),
-			     prp1, prp2);
+    return nvme_dma_read_prp(_ctrl, (uint8_t *)&_ctrl->smart, ( numd + 1 ) << 2, prp1, prp2);
+}
+
+static uint16_t nvme_get_error_info(NvmeCtrl *_ctrl, NvmeGetLogPageCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu( _cmd->prp1 );
+    uint64_t prp2 = le64_to_cpu( _cmd->prp2 );
+    uint16_t numd = le16_to_cpu( _cmd->numd ) & 0x0FFF;
+
+    if ( sizeof(NvmeErrorLog) * NVME_NUM_ERROR_LOG < ( ( numd + 1 ) << 2 ) ) {
+        return NVME_INVALID_FIELD | NVME_DNR;
+    }
+
+    return nvme_dma_read_prp(_ctrl, (uint8_t *)(_ctrl->error_info), ( numd + 1 ) << 2, prp1, prp2);
+}
+
+static uint16_t nvme_get_fw_slot_info(NvmeCtrl *_ctrl, NvmeGetLogPageCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu( _cmd->prp1 );
+    uint64_t prp2 = le64_to_cpu( _cmd->prp2 );
+    uint16_t numd = le16_to_cpu( _cmd->numd ) & 0x0FFF;
+
+    if ( sizeof(NvmeFwSlotInfoLog) < ( ( numd + 1 ) << 2 ) ) {
+        return NVME_INVALID_FIELD | NVME_DNR;
+    }
+
+    return nvme_dma_read_prp(_ctrl, (uint8_t *)&(_ctrl->fw_slot_info), ( numd + 1 ) << 2, prp1, prp2);
+}
+
+static uint16_t nvme_get_cse_info(NvmeCtrl *_ctrl, NvmeGetLogPageCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu( _cmd->prp1 );
+    uint64_t prp2 = le64_to_cpu( _cmd->prp2 );
+    uint16_t numd = le16_to_cpu( _cmd->numd ) & 0x0FFF;
+
+    if ( NVME_CED_SZ_BYTE < ( ( numd + 1 ) << 2 ) ) {
+        return NVME_INVALID_FIELD | NVME_DNR;
+    }
+
+    uint8_t *tmp = g_malloc0(NVME_CED_SZ_BYTE);
+    if ( tmp == NULL ) {
+	qemu_printf( "[NVME] [ Get Log Page / CSE ] failed in g_malloc(): %s\n", strerror(errno) );
+        return NVME_INVALID_FIELD | NVME_DNR;
+    }
+    memset( tmp, 0, NVME_CED_SZ_BYTE ); // clear
+    memcpy( (void *)tmp, (const void *)nvme_ced_admin, NVME_CED_NUM_ADM_CMD << 2 );
+    memcpy( (void *)( tmp + (NVME_CED_NUM_ADM_CMD << 2) ), (const void *)nvme_ced_io, NVME_CED_NUM_IO_CMD << 2 );
+
+    uint16_t ret = nvme_dma_read_prp(_ctrl, (uint8_t *)tmp, ( numd + 1 ) << 2, prp1, prp2);
+    g_free( tmp );
+    return ret;
 }
 
 static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
 {
-    uint32_t cdw10 = le32_to_cpu(_cmd->cdw10);
-    uint8_t  lid   = cdw10 & 0xFF; // Log Page Identifier (LID)
+    NvmeGetLogPageCmd *thisCmd = (NvmeGetLogPageCmd *)_cmd;
 
-    switch ( lid ) {
+    switch ( thisCmd->lid ) {
     case NVME_LOG_ERROR_INFO:
-        return nvme_get_error_info(_ctrl, _cmd, _req);
+        return nvme_get_error_info(_ctrl, thisCmd, _req);
     case NVME_LOG_SMART_INFO:
-        return nvme_get_smart(_ctrl, _cmd, _req);
+        return nvme_get_smart(_ctrl, thisCmd, _req);
     case NVME_LOG_FW_SLOT_INFO:
-        return nvme_get_fw_slot_info(_ctrl, _cmd, _req);
+        return nvme_get_fw_slot_info(_ctrl, thisCmd, _req);
+    case NVME_LOG_CSE_INFO:
+        return nvme_get_cse_info(_ctrl, thisCmd, _req);
     default:
         // REVISIT: need to implement trace event like "trace_nvme_err_invalid_logid(cdw10)"
         return NVME_INVALID_LOG_ID | NVME_DNR;
@@ -1529,7 +1619,9 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->frmw = 7 << 1;
 
     // Log Page Attributes (LPA)
-    id->lpa = 1 << 0; // SMART enabled
+    //  - Command Effects log page is supported
+    //  - SMART log page is not per namespace basis
+    id->lpa = 0x2;
 
     // Error Log Page Entries (ELPE)
     id->elpe = (NVME_NUM_ERROR_LOG - 1);

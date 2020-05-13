@@ -468,6 +468,25 @@ enum NvmeStatusCodes {
     NVME_NO_COMPLETE            = 0xffff,
 };
 
+typedef struct NvmeGetLogPageCmd {
+    uint8_t     opcode;
+    uint8_t     fuse;
+    uint16_t    cid;
+    uint32_t    nsid;
+    uint64_t    res1;
+    uint64_t    mptr;
+    uint64_t    prp1;
+    uint64_t    prp2;
+    uint8_t     lid;   // CDW10[ 7: 0]
+    uint8_t     res2;  // CDW10[15: 8]
+    uint16_t    numd;  // CDW10[27:16]
+    uint32_t    cdw11;
+    uint32_t    cdw12;
+    uint32_t    cdw13;
+    uint32_t    cdw14;
+    uint32_t    cdw15;
+} NvmeGetLogPageCmd;
+
 typedef struct NvmeFwSlotInfoLog {
     uint8_t     afi;
     uint8_t     reserved1[7];
@@ -532,6 +551,7 @@ enum LogIdentifier {
     NVME_LOG_ERROR_INFO     = 0x01,
     NVME_LOG_SMART_INFO     = 0x02,
     NVME_LOG_FW_SLOT_INFO   = 0x03,
+    NVME_LOG_CSE_INFO       = 0x05,
 };
 
 typedef struct NvmePSD {
@@ -748,12 +768,47 @@ enum NvmeIdNsDps {
     DPS_FIRST_EIGHT = 8,
 };
 
+#define NVME_CED_SZ_BYTE (4096)
+#define NVME_CED_NUM_ADM_CMD (256)
+#define NVME_CED_NUM_IO_CMD (256)
+
+enum NvmeCedShift {
+    NVME_CED_CSUPP_SHIFT   = 0,
+    NVME_CED_LBCC_SHIFT    = 1,
+    NVME_CED_NCC_SHIFT     = 2,
+    NVME_CED_NIC_SHIFT     = 3,
+    NVME_CED_CCC_SHIFT     = 4,
+    NVME_CED_CSE_SHIFT     = 16,
+};
+
+enum NvmeCedMask {
+    NVME_CED_CSUPP_MASK   = 0x1,
+    NVME_CED_LBCC_MASK    = 0x2,
+    NVME_CED_NCC_MASK     = 0x4,
+    NVME_CED_NIC_MASK     = 0x8,
+    NVME_CED_CCC_MASK     = 0x10,
+    NVME_CED_CSE_MASK     = 0x70,
+};
+
+#define NVME_CSD_CSE_LIMIT_NONE    (0)
+#define NVME_CSD_CSE_LIMIT_SAME_NS (1)
+#define NVME_CSD_CSE_LIMIT_ALL_NS  (2)
+
+#define NVME_CED_SET_CSUPP (1 << NVME_CED_CSUPP_SHIFT)
+#define NVME_CED_SET_LBCC  (1 << NVME_CED_LBCC_SHIFT)
+#define NVME_CED_SET_NCC   (1 << NVME_CED_NCC_SHIFT)
+#define NVME_CED_SET_NIC   (1 << NVME_CED_NIC_SHIFT)
+#define NVME_CED_SET_CCC   (1 << NVME_CED_CCC_SHIFT)
+#define NVME_CED_SET_CSE_LIMIT_SAME_NS  (NVME_CSD_CSE_LIMIT_SAME_NS << NVME_CED_CSE_SHIFT)
+#define NVME_CED_SET_CSE_LIMIT_ALL_NS   (NVME_CSD_CSE_LIMIT_ALL_NS << NVME_CED_NCC_SHIFT)
+
 static inline void _nvme_check_size(void)
 {
     QEMU_BUILD_BUG_ON(sizeof(NvmeAerResult) != 4);
     QEMU_BUILD_BUG_ON(sizeof(NvmeCqe) != 16);
     QEMU_BUILD_BUG_ON(sizeof(NvmeDsmRange) != 16);
     QEMU_BUILD_BUG_ON(sizeof(NvmeCmd) != 64);
+    QEMU_BUILD_BUG_ON(sizeof(NvmeGetLogPageCmd) != 64);
     QEMU_BUILD_BUG_ON(sizeof(NvmeDeleteQ) != 64);
     QEMU_BUILD_BUG_ON(sizeof(NvmeCreateCq) != 64);
     QEMU_BUILD_BUG_ON(sizeof(NvmeCreateSq) != 64);
