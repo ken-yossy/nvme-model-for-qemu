@@ -99,7 +99,7 @@ static const uint32_t nvme_ced_io[] = {
     0,                                      // 05h: Compare
     0, 0,                                   // 06h, 07h:
     NVME_CED_SET_CSUPP | NVME_CED_SET_LBCC, // 08h: Write Zeroes
-    0,                                      // 09h: Dataset Management
+    NVME_CED_SET_CSUPP | NVME_CED_SET_LBCC, // 09h: Dataset Management
     0, 0, 0,                                // 0Ah, 0Bh, 0Ch
     0,                                      // 0Dh: Reservation Register
     0,                                      // 0Eh: Reservation Report
@@ -485,6 +485,71 @@ static uint16_t nvme_write_zeros(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     return NVME_NO_COMPLETE;
 }
 
+static uint16_t nvme_dsm(NvmeCtrl *_ctrl, NvmeNamespace *_ns, NvmeCmd *_cmd,
+			 NvmeRequest *_req)
+{
+    NvmeDsmCmd *thisCmd = (NvmeDsmCmd *)_cmd;
+    const uint8_t lba_index  = NVME_ID_NS_FLBAS_INDEX(_ns->id_ns.flbas);
+    const uint8_t data_shift = _ns->id_ns.lbaf[lba_index].ds;
+
+    uint32_t nr   = le32_to_cpu( thisCmd->nr ) & 0xFF;        // CDW10[07:00]
+    uint64_t attr = le32_to_cpu( thisCmd->attributes ) & 0x7; // CDW11[02:00]
+    uint64_t prp1 = le64_to_cpu( thisCmd->prp1 );
+    uint64_t prp2 = le64_to_cpu( thisCmd->prp2 );
+
+    uint16_t ret;
+
+    NvmeDsmRange *ranges = g_malloc0( sizeof(NvmeDsmRange) * NVME_NUM_MAX_DSM_RANGES );
+    if ( ranges == NULL ) {
+	qemu_printf( "[NVME] [DSM] failed in g_malloc(): %s\n", strerror(errno) );
+        return NVME_INTERNAL_DEV_ERROR | NVME_DNR;
+    }
+
+    // get LBA ranges
+    ret = nvme_dma_write_prp( _ctrl, (uint8_t *)ranges,
+			     sizeof(NvmeDsmRange) * ( nr + 1 ), prp1, prp2);
+
+    if (ret != NVME_SUCCESS) {
+	return ret;
+    }
+
+    for ( int i = 0; i <= nr; i++ ) {
+	uint32_t nlb    = le32_to_cpu( ranges[ i ].nlb );
+	uint64_t slba   = le64_to_cpu( ranges[ i ].slba );
+	uint64_t offset = slba << data_shift;
+	uint32_t count  =  nlb << data_shift;
+
+	if ( unlikely( slba + nlb > _ns->id_ns.nsze ) ) {
+	    trace_nvme_err_invalid_lba_range( slba, nlb, _ns->id_ns.nsze );
+	    return NVME_LBA_RANGE | NVME_DNR;
+	}
+
+	/**
+	 * NVMe spec implicitly states that a host may specify
+	 * all combinations of attributes
+	 */
+	if ( attr & ( NVME_DSMGMT_IDR | NVME_DSMGMT_IDW ) ) {
+	    // nothing to do
+	}
+
+	if ( attr & NVME_DSMGMT_AD ) {
+	    _req->has_sg = false;
+	    block_acct_start( blk_get_stats( _ctrl->conf.blk), &_req->acct, 0, BLOCK_ACCT_WRITE );
+	    ret = blk_pwrite_zeroes( _ctrl->conf.blk, offset, count, BDRV_REQ_MAY_UNMAP );
+	    if ( ret == 0 ) {
+		block_acct_done( blk_get_stats( _ctrl->conf.blk ), &_req->acct );
+	    } else {
+		block_acct_failed( blk_get_stats( _ctrl->conf.blk ), &_req->acct );
+		ret = NVME_INTERNAL_DEV_ERROR;
+		break;
+	    }
+	}
+    }
+
+    g_free( ranges );
+    return ret;
+}
+
 static uint16_t nvme_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     NvmeRequest *req)
 {
@@ -553,6 +618,8 @@ static uint16_t nvme_io_cmd(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     case NVME_CMD_WRITE:
     case NVME_CMD_READ:
         return nvme_rw(n, ns, cmd, req);
+    case NVME_CMD_DSM:
+        return nvme_dsm(n, ns, cmd, req);
     default:
         trace_nvme_err_invalid_opc(cmd->opcode);
         return NVME_INVALID_OPCODE | NVME_DNR;
@@ -1671,7 +1738,7 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->nn = cpu_to_le32(_ctrl->num_namespaces);
 
     // Optional NVM Command Support (ONCS)
-    id->oncs = cpu_to_le16(NVME_ONCS_WRITE_ZEROS | NVME_ONCS_TIMESTAMP);
+    id->oncs = cpu_to_le16(NVME_ONCS_WRITE_ZEROS | NVME_ONCS_TIMESTAMP | NVME_ONCS_DSM);
 
     // Fused Operation Support (FUSES)
     id->fuses = 0;

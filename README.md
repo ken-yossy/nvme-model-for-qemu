@@ -1,6 +1,6 @@
 # nvme-model-for-qemu
 
- This is a personal implementation of a drive model for Qemu that is compliant to NVMe specification
+ This is an implementation of a drive model for Qemu that is compliant to NVMe specification
 
 # Notes
 
@@ -61,7 +61,7 @@ It is referred to the NVMe 1.2.0 specification.
 |       258 | M   | ACL      | 0                | means 1 (0's based value)    |
 |       259 | M   | AERL     | 0                | means 1 (0's based value)    |
 |       260 | M   | FRMW     | 0x0E             | there's no activation pending slot, active slot is slot 1, and number of FW slot is seven |
-|       261 | M   | LPA      | 0x1              |                              |
+|       261 | M   | LPA      | 0x2              |                              |
 |       262 | M   | ELPE     | 0                | means 1 (0's based value)    |
 |       263 | M   | NPSS     | 0                | means 1 (2^0)                |
 |       264 | M   | AVSCC    | 0                |                              |
@@ -79,7 +79,7 @@ It is referred to the NVMe 1.2.0 specification.
 |       513 | M   | CQES     | 0x44             | 16 bytes                     |
 |  515: 514 |     |          |                  | _reserved_                   |
 |  519: 516 | M   | NN       | --               | environment dependent        |
-|  521: 520 | M   | ONCS     | 0x48             |                              |
+|  521: 520 | M   | ONCS     | 0x4C             | supports Write Zeroes and Dataset Management (only Deallocate) |
 |  523: 522 | M   | FUSES    | 0                |                              |
 |       524 | M   | FNA      | 0                |                              |
 |       525 | M   | VWC      | --               | environment dependent        |

@@ -387,6 +387,8 @@ typedef struct NvmeDsmRange {
     uint64_t    slba;
 } NvmeDsmRange;
 
+#define NVME_NUM_MAX_DSM_RANGES (256)
+
 enum NvmeAsyncEventRequest {
     NVME_AER_TYPE_ERROR                     = 0,
     NVME_AER_TYPE_SMART                     = 1,
