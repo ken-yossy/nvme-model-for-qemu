@@ -1,14 +1,15 @@
 # nvme-model-for-qemu
 
- This is an implementation of a drive model for Qemu that is compliant to NVMe specification
+ This is an implementation of a drive model for Qemu that is (almost) compliant to NVMe specification
 
 # Notes
 
 * based on qemu-4.1.0
+* Functions of some features are limited to be able to check only request and response between host and storage
 
 # Current Implementation
 
-It is referred to the NVMe 1.2.0 specification.
+It is referred to the NVMe 1.3.0 specification.
 
 ## Controller Register
 ### Offset 00h: Controller Capabilities (CAP)
@@ -34,7 +35,7 @@ It is referred to the NVMe 1.2.0 specification.
 |   Bit | Mnemonic | Value | Note                   |
 |------:|:---------|:------|:-----------------------|
 | 07:00 | TER      | 0     |                        |
-| 15:08 | MER      | 2     |                        |
+| 15:08 | MER      | 3     |                        |
 | 31:16 | MJR      | 1     |                        |
 
 ## Identify Controller data structure
@@ -61,7 +62,7 @@ It is referred to the NVMe 1.2.0 specification.
 |       258 | M   | ACL      | 0                | means 1 (0's based value)    |
 |       259 | M   | AERL     | 0                | means 1 (0's based value)    |
 |       260 | M   | FRMW     | 0x0E             | there's no activation pending slot, active slot is slot 1, and number of FW slot is seven |
-|       261 | M   | LPA      | 0x2              |                              |
+|       261 | M   | LPA      | 0xA              | supports "Command Supported and Effects" and Telemetry |
 |       262 | M   | ELPE     | 0                | means 1 (0's based value)    |
 |       263 | M   | NPSS     | 0                | means 1 (2^0)                |
 |       264 | M   | AVSCC    | 0                |                              |
@@ -179,7 +180,7 @@ It can be retreieved by "Get Log Page" command with Log Identifier 01h.
 | 159: 144 |     0 | Unsafe Shutdowns                        ||
 | 175: 160 |     0 | Media and Data Integrity Errors         ||
 | 191: 176 |     0 | Number of Error Information Log Entries ||
-| 195: 192 |     0 | Warning COmposite Temperature Time      ||
+| 195: 192 |     0 | Warning Composite Temperature Time      ||
 | 199: 196 |     0 | Critical Composite Temperature Time     ||
 | 201: 200 |   305 | Temperature Sensor 1                    | 30 degrees Celsius |
 | 203: 202 |     0 | Temperature Sensor 2                    ||
@@ -190,3 +191,64 @@ It can be retreieved by "Get Log Page" command with Log Identifier 01h.
 | 213: 212 |     0 | Temperature Sensor 7                    ||
 | 215: 214 |     0 | Temperature Sensor 8                    ||
 | 511: 216 |       | _reserved_                              ||
+
+## Command Support
+
+It can be retreieved by "Get Log Page" command with Log Identifier 05h (Commands Supported and Effects log page).
+
+### Admin Command
+
+| Opecode  | Description                 | Support           | Note              |
+|---------:|:------|:----------------------------------------|:------------------|
+|      00h | Delete I/O Submission Queue | x                 ||
+|      01h | Create I/O Submission Queue | x                 ||
+|      02h | Get Log Page                | x                 ||
+|      04h | Delete I/O Completion Queue | x                 ||
+|      05h | Create I/O Completion Queue | x                 ||
+|      06h | Identify                    | x                 ||
+|      08h | Abort                       |                   ||
+|      09h | Set Features                | x                 ||
+|      0Ah | Get Features                | x                 ||
+|      0Ch | Asynchronous Event Request  |                   ||
+|      0Dh | Namespace Management        |                   ||
+|      10h | Firmware Commit             |                   ||
+|      11h | Firmware Image Download     |                   ||
+|      15h | Namespace Attachment        |                   ||
+|      80h | Format NVM                  |                   ||
+|      81h | Security Send               |                   ||
+|      82h | Security Receive            |                   ||
+
+### I/O Command
+
+| Opecode  | Description                 | Support           | Note              |
+|---------:|:------|:----------------------------------------|:------------------|
+|      00h | Flush                       | x                 ||
+|      01h | Write                       | x                 ||
+|      02h | Read                        | x                 ||
+|      04h | Write Uncorrectable         |                   ||
+|      05h | Compare                     |                   ||
+|      08h | Write Zeroes                | x                 ||
+|      09h | Dataset Management          | x                 | `Deallocate` only |
+|      0Dh | Reservation Register        |                   ||
+|      0Eh | Reservation Report          |                   ||
+|      0Dh | Namespace Management        |                   ||
+|      11h | Reservation Acquire         |                   ||
+|      15h | Reservation Release         |                   ||
+
+## Log Page Support
+
+| Log Id   | Description                 | Support           | Note              |
+|---------:|:------|:----------------------------------------|:------------------|
+|      01h | Error Information           | x                 | No error Information is created. |
+|      02h | SMART / Health Information  | x                 ||
+|      03h | Firmware Slot Information   | x                 ||
+|      04h | Changed Namespace List      |                   ||
+|      05h | Commands Supported and Effects | x              ||
+|      06h | Device Self-test            |                   ||
+|      07h | Telemetry Host-Initiated    | x                 | No telemetry data is created; only header is returned. See also Note 1. |
+|      08h | Telemetry Controller-Initiated | x              | No telemetry data is created; only header is returned. |
+|      70h | Discovery                   |                   ||
+|      80h | Reservation Notification    |                   ||
+|      0Dh | Sanitize Status             |                   ||
+
+Note 1: if "Create Telemetry Host-Initiated Data" is set to `1`, the data format of the response is not followed to NVMe spec because Windows 10 requests different data format...

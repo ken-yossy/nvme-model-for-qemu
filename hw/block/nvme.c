@@ -1093,6 +1093,68 @@ static uint16_t nvme_get_cse_info(NvmeCtrl *_ctrl, NvmeGetLogPageCmd *_cmd, Nvme
     return ret;
 }
 
+static uint16_t nvme_get_telemetry(NvmeCtrl *_ctrl, NvmeGetLogPageCmd *_cmd, NvmeRequest *_req)
+{
+    uint64_t prp1 = le64_to_cpu( _cmd->prp1 );
+    uint64_t prp2 = le64_to_cpu( _cmd->prp2 );
+    uint8_t  bCreate = ( _cmd->res2 ) & 0x1;
+    unsigned int uiAllocSize = 0;
+    uint8_t  *res = NULL;
+
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] Command received\n" );
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] CDW10[11: 8] LSP   = 0x%X\n", bCreate );
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] CDW10[   15] RAE   = 0x%X\n", ((_cmd->res2) >> 15) & 0x1 );
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] CDW10[31:16] NUMDL = 0x%04X\n", le16_to_cpu(_cmd->numd) );
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] CDW11[15: 0] NUMDU = 0x%08X\n", le32_to_cpu(_cmd->cdw11) & 0x0000FFFF );
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] CDW12[31: 0] LPOL  = 0x%08X\n", le32_to_cpu(_cmd->cdw12) );
+    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] CDW13[31: 0] LPOU  = 0x%08X\n", le32_to_cpu(_cmd->cdw13) );
+
+    if ( bCreate )
+    {
+	/**
+	 * Windows sets "Create Telemetry Host-Initiated Data" bit to 1
+	 * ONLY IF calling DeviceIoControl() with IOCTL_STORAGE_GET_DEVICE_INTERNAL_LOG.
+	 *
+	 * In this case, the data layout for Telemetry Header is different from the one of NVMe.
+	 */
+	uiAllocSize = sizeof(DeviceInternalStatusData);
+	qemu_printf( "[NVME] [ Get Log Page / Telemetry ] uiAllocSize = %d\n", uiAllocSize);
+	res = g_malloc0(uiAllocSize);
+	if ( res == NULL ) {
+	    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] failed in g_malloc(): %s\n", strerror(errno) );
+	    return NVME_INVALID_FIELD | NVME_DNR;
+	}
+	memset( res, 0, uiAllocSize ); // clear
+
+	DeviceInternalStatusData *tmp = (DeviceInternalStatusData *)res;
+//      tmp->T10VendorId        = 0x0000000000000001; // NG
+//      tmp->T10VendorId        = 0x0000000000010000; // NG
+        tmp->T10VendorId        = 0x0000000100000000; // OK
+//      tmp->T10VendorId        = 0x0001000000000000; // NG
+	// other fields are left zero
+    }
+    else
+    {
+	uiAllocSize = sizeof(NvmeTelemetryLogHeader);
+	qemu_printf( "[NVME] [ Get Log Page / Telemetry ] uiAllocSize = %d\n", uiAllocSize);
+	res = g_malloc0(uiAllocSize);
+	if ( res == NULL ) {
+	    qemu_printf( "[NVME] [ Get Log Page / Telemetry ] failed in g_malloc(): %s\n", strerror(errno) );
+	    return NVME_INVALID_FIELD | NVME_DNR;
+	}
+	memset( res, 0, uiAllocSize ); // clear
+
+	NvmeTelemetryLogHeader *tmp = (NvmeTelemetryLogHeader *)res;
+	tmp->log_id = _cmd->lid; // shall be 07h (Host-Initiated) or 08h (Controller-Initiated)
+	// other fields are left zero
+    }
+
+    uint16_t ret = nvme_dma_read_prp(_ctrl, res, uiAllocSize, prp1, prp2);
+
+    g_free( res );
+    return ret;
+}
+
 static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_req)
 {
     NvmeGetLogPageCmd *thisCmd = (NvmeGetLogPageCmd *)_cmd;
@@ -1106,6 +1168,13 @@ static uint16_t nvme_get_log_page(NvmeCtrl *_ctrl, NvmeCmd *_cmd, NvmeRequest *_
         return nvme_get_fw_slot_info(_ctrl, thisCmd, _req);
     case NVME_LOG_CSE_INFO:
         return nvme_get_cse_info(_ctrl, thisCmd, _req);
+    case NVME_LOG_TELEMETRY_HOST:
+	qemu_printf( "[NVME] Get Log Page: Telemetry Host-Initiated\n" );
+        return nvme_get_telemetry(_ctrl, thisCmd, _req);
+    case NVME_LOG_TELEMETRY_CTLR:
+	qemu_printf( "[NVME] Get Log Page: Telemetry Controller-Initiated\n" );
+        return nvme_get_telemetry(_ctrl, thisCmd, _req);
+
     default:
         // REVISIT: need to implement trace event like "trace_nvme_err_invalid_logid(cdw10)"
         return NVME_INVALID_LOG_ID | NVME_DNR;
@@ -1659,7 +1728,7 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->cntlid = 0;
 
     // Version (VER)
-    id->ver = cpu_to_le32(0x00010200);
+    id->ver = cpu_to_le32(0x00010300);
 
     // RTD3 Resume Latency (RTD3R)
     id->rtd3r = 1000;
@@ -1671,7 +1740,7 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->oaes = 0;
 
     // Optional Admin Command Support (OACS)
-    id->oacs = cpu_to_le16(0);
+    id->oacs = 0;
 
     // Abort Command Limit (ACL)
     id->acl = 0;
@@ -1686,9 +1755,10 @@ static void nvme_realize_id_ctrl(NvmeCtrl *_ctrl, uint8_t *_pci_conf)
     id->frmw = 7 << 1;
 
     // Log Page Attributes (LPA)
+    //  - Telemetry supported (only header)
     //  - Command Effects log page is supported
     //  - SMART log page is not per namespace basis
-    id->lpa = 0x2;
+    id->lpa = NVME_LPA_CSE | NVME_LPA_TELEMETRY;
 
     // Error Log Page Entries (ELPE)
     id->elpe = (NVME_NUM_ERROR_LOG - 1);

@@ -541,6 +541,34 @@ typedef struct NvmeSmartLog {
     uint8_t     reserved2[296];
 } NvmeSmartLog;
 
+typedef struct NvmeTelemetryLogHeader {
+    uint8_t     log_id;
+    uint8_t     rsvd0[4];
+    uint8_t     ieee_oui[3];
+    uint16_t    host_data_area_1_last_block;
+    uint16_t    host_data_area_2_last_block;
+    uint16_t    host_data_area_3_last_block;
+    uint8_t     rsvd1[368];
+    uint8_t     ctlr_data_available;
+    uint8_t     ctlr_data_gen_num;
+    uint8_t     reason_id[128];
+} NvmeTelemetryLogHeader;
+
+typedef struct DeviceInternalStatusData {
+    uint32_t    Version;
+    uint32_t    Size;
+    uint64_t    T10VendorId;
+    uint32_t    DataSet1Length;
+    uint32_t    DataSet2Length;
+    uint32_t    DataSet3Length;
+    uint32_t    DataSet4Length;
+    uint8_t     StatusDataVersion;
+    uint8_t     rsvd[3];
+    uint8_t     ReasonIdentifier[128];
+    uint32_t    StatusDataLength;
+    uint8_t     StatusData;
+} DeviceInternalStatusData;
+
 enum NvmeSmartWarn {
     NVME_SMART_SPARE                  = 1 << 0,
     NVME_SMART_TEMPERATURE            = 1 << 1,
@@ -554,6 +582,8 @@ enum LogIdentifier {
     NVME_LOG_SMART_INFO     = 0x02,
     NVME_LOG_FW_SLOT_INFO   = 0x03,
     NVME_LOG_CSE_INFO       = 0x05,
+    NVME_LOG_TELEMETRY_HOST = 0x07,
+    NVME_LOG_TELEMETRY_CTLR = 0x08,
 };
 
 typedef struct NvmePSD {
@@ -648,6 +678,13 @@ enum NvmeIdCtrlOacs {
     NVME_OACS_SECURITY  = 1 << 0,
     NVME_OACS_FORMAT    = 1 << 1,
     NVME_OACS_FW        = 1 << 2,
+};
+
+enum NvmeIdCtrlLpa {
+    NVME_LPA_SMART_PER_NS = 1 << 0,
+    NVME_LPA_CSE          = 1 << 1,
+    NVME_LPA_EXT_DATA     = 1 << 2,
+    NVME_LPA_TELEMETRY    = 1 << 3,
 };
 
 enum NvmeIdCtrlOncs {
@@ -804,6 +841,26 @@ enum NvmeCedMask {
 #define NVME_CED_SET_CSE_LIMIT_SAME_NS  (NVME_CSD_CSE_LIMIT_SAME_NS << NVME_CED_CSE_SHIFT)
 #define NVME_CED_SET_CSE_LIMIT_ALL_NS   (NVME_CSD_CSE_LIMIT_ALL_NS << NVME_CED_NCC_SHIFT)
 
+typedef struct NvmeSecurityRecvCmd {
+    uint8_t     opcode;
+    uint8_t     flags;
+    uint16_t    cid;
+    uint32_t    nsid;
+    uint64_t    rsvd1;
+    uint64_t    mptr;
+    uint64_t    prp1;
+    uint64_t    prp2;
+    uint8_t     nssf; // CDW10: [07:00] NVMe Security Specific Field
+    uint8_t     spsp0;// CDW10: [15:08] SP (Security Protocol) specific 0
+    uint8_t     spsp1;// CDW10: [23:16] SP (Security Protocol) specific 1
+    uint8_t     secp; // CDW10: [31:24] Security Protocol
+    uint32_t    al;   // CDW11: Allocation Length
+    uint32_t    cdw12;
+    uint32_t    cdw13;
+    uint32_t    cdw14;
+    uint32_t    cdw15;
+} NvmeSecurityRecvCmd;
+
 static inline void _nvme_check_size(void)
 {
     QEMU_BUILD_BUG_ON(sizeof(NvmeAerResult) != 4);
@@ -824,5 +881,6 @@ static inline void _nvme_check_size(void)
     QEMU_BUILD_BUG_ON(sizeof(NvmeIdCtrl) != 4096);
     QEMU_BUILD_BUG_ON(sizeof(NvmeIdNs) != 4096);
     QEMU_BUILD_BUG_ON(sizeof(NvmePSD) != 32);
+    QEMU_BUILD_BUG_ON(sizeof(NvmeTelemetryLogHeader) != 512);
 }
 #endif
