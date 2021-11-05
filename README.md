@@ -1,3 +1,5 @@
+Note: This repository has been archived and no longer maintained. Please check [QEMU project's web site](https://www.qemu.org/). Thank you.
+
 # nvme-model-for-qemu
 
  This is an implementation of a drive model for Qemu that is (almost) compliant to NVMe specification
